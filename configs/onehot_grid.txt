@@ -1,0 +1,11 @@
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer adamw --lr 0.0003 --wd 0.0001 --init-scale 1.0 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 42
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer adamw --lr 0.0003 --wd 0.0001 --init-scale 1.0 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 43
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer adamw --lr 0.0003 --wd 0.001 --init-scale 1.0 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 42
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer sgd --lr 0.2 --wd 0.0001 --init-scale 1.0 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 42
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer sgd --lr 0.2 --wd 0.001 --init-scale 1.0 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 42
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer sgd --lr 0.5 --wd 0.0001 --init-scale 0.1 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 42
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer sgd --lr 0.5 --wd 0.0001 --init-scale 0.1 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 43
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer sgd --lr 0.5 --wd 0.001 --init-scale 0.1 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 42
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer sgd --lr 0.5 --wd 1e-05 --init-scale 0.1 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 42
+--L 3 --activation square --no-layernorm --hidden-size 2048 --optimizer sgd --lr 1.0 --wd 0.0001 --init-scale 0.1 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 42
+--L 4 --activation square --no-layernorm --hidden-size 4096 --optimizer sgd --lr 0.5 --wd 0.0001 --init-scale 0.1 --n 50000 --batch-size 128 --epochs 1500 --lr-gamma 1.0 --lr-step 200 --seed 42

@@ -1,0 +1,1126 @@
+\documentclass[a4paper,11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage[margin=1.2in]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}[proposition]{Lemma}
+\newtheorem{corollary}[proposition]{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}[proposition]{Remark}
+\theoremstyle{definition}
+\newtheorem{definition}[proposition]{Definition}
+\newtheorem{hypothesis}{Hypothesis}
+
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\planned}[1]{\textcolor{blue}{[PLANNED: #1]}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\vect}{\operatorname{vec}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\SO}{\mathrm{SO}(3)}
+\newcommand{\ip}[2]{\langle #1, #2 \rangle}
+
+\title{The hidden representations and interpretation of SO(3) group operation in neural networks\\[0.5em]
+\large Working draft}
+\author{\todo{authors}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+It is a famous fact that networks trained on finite-group composition with one-hot
+inputs learn hidden representations that are matrix elements of single irreducible
+representations (irreps). We argue that this fact combines three distinct
+ingredients, and use the compact Lie group $\SO$ to separate them.
+\emph{Availability}: for a finite group the natural encoding is the regular
+representation, suggested by the one-hot vectors, which contains every irrep with
+full multiplicity, linearly and up to a change of basis a first layer cannot
+detect. For $\SO$ the regular representation $L^2(\SO)$ is infinite-dimensional,
+and every encoding built from a finite-dimensional representation is a truncated
+inverse Fourier transform; we use the truncated delta
+$\bigoplus_{l\le L}\sqrt{2l+1}\,\vect D^l(G)$, also presented in a ``pixel'' basis of
+samples at random anchor rotations, where no irrep is visible. \emph{Target structure}: composition is block-diagonal in
+Fourier space, $D^l(GH)=D^l(G)D^l(H)$. \emph{Selection}: an elementwise
+nonlinearity must choose a basis of hidden units; we find that irrep-pure units are selected whenever the norm is controlled,
+explicitly by weight decay or implicitly by a small initialisation, while explicit
+weight decay is needed to prune them to the minimum-norm count. With a
+quadratic activation we show that (i) when an encoding exposes an irrep only
+through a rank-$r$ Fourier block, a hidden layer can capture at most a fraction
+$r/(2l+1)$ of the corresponding target, a bound reached by trained networks;
+(ii) with the truncated delta as input and output, every active neuron is
+irrep-pure, with the same irrep in both input blocks and the readout, in both the
+Fourier and the pixel basis; (iii) within each irrep the network implements
+$d_l\times d_l$ matrix multiplication (tensor cosine $0.96$--$1.000$), with a
+causal, block-diagonal ablation profile; and (iv) under weight decay it converges
+to a sharply defined number of equal-norm rank-one product units
+$(a^\top D^l(G)u)(u^\top D^l(H)b)\,ab^\top$ per irrep: $d_l^3$ for $l=1,2$ and
+$d_l^3+d_l$ for $l=3,4$. The irreps are thus not discovered from the encoding;
+they are selected among the bases an elementwise network could use.
+\end{abstract}
+
+\tableofcontents
+
+%======================================================================
+\section{Introduction}
+%======================================================================
+
+Neural networks trained to compose elements of a finite group $G$ learn
+features built from the group's irreducible representations: for modular
+addition, neurons are Fourier modes \cite{nanda2023progress, gromov2023grokking,
+zhong2023clock}; for general finite groups, neurons are real linear
+combinations of the matrix elements of a single irrep \cite{chughtai2023toy,
+stander2024cosets}. For two-layer networks with polynomial activation and small
+initialisation, Marchetti et al.\ \cite{marchetti2026sequential} prove this,
+using the Alternating Gradient Flow (AGF) framework \cite{kunin2025agf}: irreps
+are acquired one at a time, in an order set by the Fourier statistics of the
+input encoding. Margin-maximisation arguments give a related prediction for
+quadratic networks \cite{morwani2023feature}.
+
+The phenomenon is usually told as ``the network discovers the Fourier transform
+of the group''. We argue that this conflates three ingredients:
+\begin{enumerate}
+\item \textbf{Availability.} For a finite group, the natural encoding is the
+  regular representation $\R[G]$, suggested by the one-hot vectors, in which every
+  irrep $\rho$ occurs with multiplicity $d_\rho$; its Fourier transform, an
+  isometry, maps the encoding of $g$ to the matrix coefficients
+  $\sqrt{d_\rho/|G|}\,\rho(g)$ (Section~\ref{sec:finite}). A first layer with
+  isotropic initialisation and weight decay is blind to that change of basis, so
+  the irreps are linearly available from the start.
+\item \textbf{Target structure.} Composition is a convolution, hence
+  block-diagonal in Fourier space: $\rho(gh)=\rho(g)\rho(h)$ for every irrep.
+\item \textbf{Selection.} With an elementwise activation, rotating the hidden
+  units changes the function, so the network must pick a basis. That it picks
+  units that are pure in one irrep, in both inputs and in the readout, is the
+  genuinely non-trivial part.
+\end{enumerate}
+
+Finite groups make these ingredients hard to pull apart, because the regular
+representation is both natural and finite-dimensional. For the compact Lie group
+$\SO$ it is $L^2(\SO)$, infinite-dimensional, so it cannot serve as an encoding:
+any encoding built from a finite-dimensional representation is a truncated inverse
+Fourier transform, involving finitely many irreps with some coefficients. The
+choice of encoding, rotation matrices, orbits $\rho(G)x$ of a fixed vector, or the
+delta function at $G$ truncated to irreps $l\le L$, then decides which irreps are
+available, and $\SO$ becomes a testbed where the three ingredients separate. The truncated delta can be
+given in two bases. In the \emph{Fourier basis} it is the family of its Peter--Weyl
+coefficients, where the irreps are explicit. In the \emph{pixel basis} it is the
+vector of its values at $N$ fixed anchor rotations $R_1,\dots,R_N$, a blurred bump
+centred at $G$; this is the analogue of the one-hot coordinates of a finite group,
+which are the values of the delta function at each group element, and no irrep is
+visible in it. Finally, the target can contain one irrep (the product $GH$) or many
+(the truncated delta of $GH$).
+
+\paragraph{Contributions.}
+\begin{itemize}
+\item \textbf{Encodings} (Section~\ref{sec:encodings}). For a finite group the
+  regular representation is a natural, finite-dimensional encoding; for $\SO$ it is
+  infinite-dimensional, and every encoding built from a finite-dimensional
+  representation is a truncated inverse Fourier transform. We use the truncation
+  closest to the regular representation, the truncated delta
+  $\delta^L(G)=\bigoplus_{l\le L}\sqrt{2l+1}\vect D^l(G)$ as a truncated Fourier
+  transform, its pixel-basis version (samples at Haar-random anchors), and
+  characterise its convergence (Figure~\ref{fig:delta}). Rotation matrices are
+  related to it by the degree filtration: $D^l$ is a polynomial of degree exactly
+  $l$ in the entries of $G$.
+\item \textbf{Availability bound} (Section~\ref{sec:capacity}). Consider an
+  orbit encoding $u(G)=\rho(G)x$ of a fixed vector $x$ in a representation $\rho$
+  of $\SO$. The $l$-isotypic component of $x$ is a $d_l\times m_l$ matrix $X_l$
+  ($m_l$ the multiplicity of $l$ in $\rho$), and the input contains $D^l(G)$ only
+  through the product $D^l(G)X_l$, i.e.\ only $r_l=\operatorname{rank}X_l$ of the
+  $d_l=2l+1$ directions on which $D^l(G)$ acts. We prove that a network with one
+  quadratic hidden layer, of any width, then explains at most a fraction
+  $r_l/d_l$ of the variance of the $l$-component of the target $\rho(GH)x$
+  (Proposition~\ref{prop:capacity}). There is no loss when every $X_l$ has full
+  rank, which holds for the regular representation (and hence for the one-hot
+  encoding of a finite group), but not for tensor powers of $\R^3$, where
+  $m_l<d_l$ for large $l$. For the matrix target $GH$ the bound becomes
+  $(r_1/d_1)^2$, and trained networks attain it: with $r_1=1$ they explain $0.113$ of
+  the variance, against the bound $1/9\approx0.111$.
+\item \textbf{Mechanism} (Sections~\ref{sec:mechanism}--\ref{sec:experiments}).
+  Schur orthogonality predicts the per-neuron signature of the quadratic product
+  mechanism (Lemma~\ref{lem:cross}); trained networks follow it, computing
+  $D^l(GH)$ as a sum of rank-one products of $D^l(G)$ and $D^l(H)$.
+\item \textbf{Selection} (Section~\ref{sec:planned}). With the truncated delta as
+  input and output, all active neurons are irrep-pure and consistent, in the
+  Fourier and in the pixel basis; under weight decay each irrep is served by
+  $d_l^3$ ($l\le2$) or $d_l^3+d_l$ ($l=3,4$) equal-norm rank-one product units.
+\end{itemize}
+
+%======================================================================
+\section{Background}
+%======================================================================
+
+\paragraph{Notation.} $G,H\in\SO$ are sampled from the Haar measure. For each
+$l\ge0$, the irrep of degree $l$ of $\SO$ acts on the $d_l=2l+1$ dimensional space
+of spherical harmonics of degree $l$, by $(G\cdot f)(x)=f(G^{-1}x)$. Its matrix in
+the orthonormal basis of real spherical harmonics $Y_l^{-l},\dots,Y_l^{l}$ is the
+\emph{real Wigner matrix} $D^l(G)\in O(d_l)$, defined by
+$Y_l^m(G^{-1}x)=\sum_{m'}D^l_{m'm}(G)\,Y_l^{m'}(x)$; $G\mapsto D^l(G)$ is a
+homomorphism, all irreps of $\SO$ are of real type, and $D^1(G)=G$ up to a fixed
+permutation of axes. Explicit formulas and the computation we use are in
+Appendix~\ref{app:wigner}. We write $\ip{A}{M}=\tr(A^\top M)=\sum_{ik}A_{ik}M_{ik}$.
+
+\paragraph{Schur orthogonality.} Under Haar measure,
+\begin{equation}\label{eq:schur}
+\E_G\bigl[D^l_{ij}(G)\,D^{l'}_{mn}(G)\bigr]=\frac{\delta_{ll'}\delta_{im}\delta_{jn}}{d_l}.
+\end{equation}
+
+\paragraph{Peter--Weyl.} $L^2(\SO)=\bigoplus_{l\ge0}\mathcal{H}_l$, where
+$\mathcal{H}_l$ is spanned by the $d_l^2$ functions $G\mapsto D^l_{mn}(G)$;
+as a left representation, $\mathcal{H}_l$ contains the irrep $l$ with
+multiplicity $d_l$. The same holds for a finite group, with $L^2(G)=\R[G]$
+and the multiplicity of $\rho$ equal to $d_\rho$.
+
+\paragraph{Casimir and Laplacian.} The Casimir operator of $\SO$ acts on
+$\mathcal{H}_l$ as the scalar $l(l+1)$; it coincides with the
+Laplace--Beltrami operator of the bi-invariant metric. Hence the $D^l_{mn}$ are
+Laplacian eigenfunctions, and isotypic projectors in any representation can be
+computed exactly from the Casimir (we use this throughout).
+
+%======================================================================
+\section{Encodings: from the regular representation to the truncated delta}
+\label{sec:encodings}
+%======================================================================
+
+A group element $g$ has a canonical representative, its image under the regular
+representation: the delta function $\delta_g=\lambda(g)\delta_e$ on $G$. For a
+finite group $\R[G]$ is finite-dimensional and $\delta_g$ is the one-hot vector, so
+the regular representation is the natural encoding, suggested by the one-hot
+vectors themselves. For a compact Lie group the regular representation is
+$L^2(G)$, which is infinite-dimensional, and $\delta_g$ is not even an element of it:
+it cannot be given to a network as such. This is the essential difference between
+the two cases, and it shapes the rest of this section.
+
+\subsection{Finite groups}\label{sec:finite}
+
+Let $G$ be finite with real irreps $\rho$ (for simplicity of real type;
+complex and quaternionic types require the usual realification). Define the
+Fourier transform $F:\R^{|G|}\to\bigoplus_\rho\R^{d_\rho\times d_\rho}$,
+\begin{equation}
+(Fv)_\rho=\sqrt{\tfrac{d_\rho}{|G|}}\sum_{h\in G}v(h)\,\rho(h).
+\end{equation}
+
+By the Plancherel theorem $F$ is orthogonal. The one-hot vector of $g$ is
+$e_g=\lambda(g)e_1$, where $\lambda$ is the left-regular representation on
+$\R[G]\cong\R^{|G|}$, and
+\begin{equation}\label{eq:onehot}
+Fe_g=\Bigl(\sqrt{\tfrac{d_\rho}{|G|}}\;\rho(g)\Bigr)_{\rho},\qquad
+F(\lambda(g)x)_\rho=\rho(g)\,\hat x(\rho),\quad \hat x(\rho)=(Fx)_\rho .
+\end{equation}
+
+\begin{remark}[Consequences for networks]\label{rem:onehot}
+A first layer $W e_g=(WF^\top)(Fe_g)$ is the same network written in the
+Fourier basis; since $F$ is orthogonal, the Frobenius norm of $W$, and hence
+weight decay and isotropic initialisation, are unchanged. For such a layer, a
+one-hot input is therefore equivalent to the family of irrep matrix coefficients of
+$g$. This removes much of the surprise usually attached to irrep features: the
+network is discovering a Fourier transform but, the irrep
+matrix coefficients are only a change of basis of the input. Every linear function of the one-hot input is already a
+combination of irrep matrix elements. What remains to be explained is why each
+hidden unit uses the coefficients of a \emph{single} irrep rather than a mixture
+(Section~\ref{sec:planned}). For an orbit encoding $\lambda(g)x$
+the input is $\rho(g)\hat x(\rho)$: whenever every $\hat x(\rho)$ is
+invertible, $\rho(g)$ is a linear function of the input, and the encoding is
+equivalent to one-hot up to an (in general non-orthogonal) linear map. Since
+$\R[G]$ contains $\rho$ with multiplicity $d_\rho$, $\hat x(\rho)$ is a
+\emph{square} matrix and is invertible for generic $x$. This is why random
+orbit encodings work as well as one-hot for finite groups
+\cite{marchetti2026sequential}.
+\end{remark}
+
+\subsection{$\SO$: every encoding is a truncated inverse Fourier transform}
+
+Any encoding of $\SO$ built from a finite-dimensional representation, that is an
+orbit map $G\mapsto\rho(G)x$ with $\dim\rho<\infty$ (rotation matrices, tensor
+powers acting on a fixed tensor, the truncated delta below), only involves the
+finitely many irreps contained in $\rho$. Decomposing $\rho=\bigoplus_l
+I_{m_l}\otimes D^l$, the encoding is, up to a fixed linear map,
+\[
+\rho(G)x\;\cong\;\bigoplus_{l\in S}D^l(G)\,X_l ,
+\]
+a truncated inverse Fourier transform: a finite set $S$ of irreps, each seen
+through the coefficient matrix $X_l$ of $x$. Unlike the finite case, truncation is
+therefore not a choice but a necessity; what can be chosen is which irreps enter,
+and with which coefficients. Non-linear charts (Euler angles, exponential
+coordinates) escape this description but are not representations, and the group
+action on them is not linear.
+
+The Peter--Weyl expansion of the delta function at $G$ is
+\begin{equation}
+\delta_G(H)=\sum_{l\ge0}d_l\,\tr\bigl(D^l(G)^\top D^l(H)\bigr),
+\end{equation}
+i.e.\ the coefficients of $\delta_G$ in the Peter--Weyl basis are
+$\bigl(\sqrt{d_l}\,D^l(G)\bigr)_{l\ge0}$. Truncating this expansion at degree $L$ is
+the choice closest to the regular representation: it keeps every irrep up to $L$,
+each with full-rank coefficients ($X_l=\sqrt{d_l}\,I$) and the same weights as the
+delta itself.
+
+\begin{definition}[Truncated delta]
+For $L\ge1$, $\delta^L(G)=\bigoplus_{l=1}^{L}\sqrt{d_l}\,\vect D^l(G)\in
+\R^{\sum_{l=1}^L d_l^2}$ (the constant $l=0$ block is dropped).
+\end{definition}
+
+Its Gram kernel $\ip{\delta^L(G)}{\delta^L(H)}=\sum_{l\le L}d_l\,\chi_l(G^\top
+H)$ is a Dirichlet-type kernel concentrated at $G=H$: a blurred delta.
+With the $\sqrt{d_l}$ weights, a first-layer weight block $W^{(l)}$ produces
+the preactivation $\sqrt{d_l}\ip{W^{(l)}}{D^l(G)}$, whose Haar variance is
+exactly $\|W^{(l)}\|_F^2$ by \eqref{eq:schur}: weight norm per block equals
+function energy per irrep.
+
+The truncated delta can be presented in two bases. In the Fourier basis above the
+irreps are explicit. Sampling the function $\delta^L_G=\sum_{l\le L}d_l\chi_l(G^\top\cdot)$
+at $N$ fixed anchor rotations instead gives the \emph{pixel basis}, a blurred
+one-hot over the anchors in which no irrep is visible; this is the $\SO$
+counterpart of the one-hot vectors of a finite group, and it is the encoding that
+justifies, through the truncated delta, the use of a ``pixelised one-hot''
+(Section~\ref{sec:computing-encoding}).
+
+\subsection{Computing the encoding: a truncated Fourier transform of the delta}
+\label{sec:computing-encoding}
+
+The encoding is the Fourier transform on $\SO$ of the delta at $G$, truncated at
+degree $L$. For $f\in L^2(\SO)$ the Fourier coefficient at degree $l$ is the
+$d_l\times d_l$ matrix
+\[
+\hat f(l)=\sqrt{d_l}\int_{\SO} f(R)\,D^l(R)\,dR ,
+\]
+and with this normalisation $f\mapsto(\hat f(l))_{l\ge0}$ is an isometry
+(Plancherel). Applied to $f=\delta_G$, the integral collapses to
+$\hat\delta_G(l)=\sqrt{d_l}\,D^l(G)$: \emph{the Fourier transform of a delta is
+the irrep matrix itself}, so no integral has to be computed. Encoding a rotation
+therefore amounts to:
+\begin{enumerate}
+\item \textbf{Real Wigner matrices.} For $l=1,\dots,L$, compute the real
+  orthogonal matrix $D^l(G)\in O(d_l)$. Any standard method works; three
+  equivalent ones:
+  \begin{itemize}
+  \item \emph{via spherical harmonics}: $D^l(G)$ is the matrix of
+    $Y\mapsto Y\circ G^{-1}$ on the real harmonics of degree $l$; evaluate the
+    $Y_l^{m}$ on a quadrature grid of $S^2$ and on the rotated grid, and solve for
+    the coefficients (our implementation);
+  \item \emph{via Euler angles}: $D^l(\alpha,\beta,\gamma)$ from the closed form
+    $e^{-im\alpha}d^l_{mn}(\beta)e^{-in\gamma}$, then the fixed unitary change to
+    the real basis;
+  \item \emph{via tensor powers}: $D^l(G)=P_l^\top G^{\otimes l}P_l$, where the
+    columns of $P_l$ are an orthonormal basis of the symmetric traceless tensors
+    of order $l$ (the harmonic polynomials of degree $l$). This makes explicit
+    that the entries of $D^l$ are polynomials of degree exactly $l$ in the
+    entries of $G$.
+  \end{itemize}
+\item \textbf{Scale and concatenate.}
+  $\delta^L(G)=\bigl(\sqrt{d_l}\,\vect D^l(G)\bigr)_{l=1}^{L}\in\R^{N_L}$, with
+  $N_L=\sum_{l=1}^Ld_l^2=\tfrac{(L+1)(2L+1)(2L+3)}{3}-1$ ($83$ for $L=3$, $164$
+  for $L=4$). The $l=0$ block is the constant $1$ and is dropped.
+\item \textbf{Target.} For composition, the target is $\delta^L(GH)$; blockwise
+  $D^l(GH)=D^l(G)D^l(H)$, so it can be computed either from the product $GH$ or
+  from the two encodings.
+\end{enumerate}
+
+\paragraph{Properties.} (i) Every entry of $\delta^L(G)$ has unit Haar variance
+and zero mean (Schur), and $\|\delta^L(G)\|^2=N_L$ for every $G$. (ii) A
+first-layer weight block $W^{(l)}$ gives a preactivation with Haar variance
+exactly $\|W^{(l)}\|_F^2$, which makes per-neuron irrep spectra fit-free.
+(iii) The Gram kernel is the truncated delta:
+$\langle\delta^L(G),\delta^L(H)\rangle=K_L(G,H)-1$ with
+\[
+K_L(G,H)=\sum_{l=0}^{L}d_l\,\chi_l(\theta),\qquad
+\chi_l(\theta)=\frac{\sin\bigl((2l+1)\theta/2\bigr)}{\sin(\theta/2)},
+\]
+$\theta$ the angle of $G^\top H$. In closed form, with $x=\theta/2$,
+$K_L=-\frac{1}{\sin x}\frac{d}{dx}\Bigl[\frac{\sin(2(L+1)x)}{2\sin x}\Bigr]$, the
+$\SO$ analogue of the Dirichlet kernel. It has unit mass for every $L$
+($\int\chi_l=\delta_{l0}$), height $K_L(0)=\sum_{l\le L}d_l^2\sim\frac43L^3$, and
+width $\sim1/L$; since Haar measure near the identity is $\propto\theta^2d\theta$,
+it converges to $\delta_G$ as $L\to\infty$ in the sense of distributions: by
+Peter--Weyl completeness, $\int f\,K_L(\cdot,H)\to f(H)$ for smooth $f$
+(Figure~\ref{fig:delta}a). The convergence is genuinely weaker than for a
+positive approximate identity: $K_L$ is not positive, and its tail, weighted by
+the Haar density $\propto\theta^2$, keeps an $O(1)$ oscillation, so the mass
+within angle $\theta$ of the identity does not tend to a step
+(Figure~\ref{fig:delta}b). This is the Pinsky phenomenon of Fourier series in
+dimension $\ge3$. Weighting the irreps by $e^{-t\,l(l+1)}$ (the heat kernel on
+$\SO$, $l(l+1)$ being the Laplacian eigenvalue) gives a positive kernel whose mass
+does concentrate at the identity (Figure~\ref{fig:delta}c).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/delta_kernel.pdf}
+\caption{The truncated delta on $\SO$ as a function of the rotation angle
+$\theta$ of $G^\top H$, for $L=1,2,4,8,16$ (light to dark). (a)
+$K_L(\theta)/K_L(0)$: the peak narrows, with width $\sim1/L$ and height
+$K_L(0)=\sum_{l\le L}d_l^2\sim\frac43L^3$. (b) Haar mass within angle $\theta$
+for the sharp truncation: it reaches 1 at $\theta=\pi$ for every $L$ but keeps
+oscillating, so $K_L\to\delta$ only against smooth test functions. (c) The same
+with heat-kernel weights $e^{-t\,l(l+1)}$, $t=8/L^2$: the kernel is positive and
+its mass concentrates at the identity. Script:
+\texttt{scripts/plot\_delta\_kernel.py}.}
+\label{fig:delta}
+\end{figure}
+
+\paragraph{Position-basis version.} Sampling the truncated delta at fixed anchor
+rotations $R_1,\dots,R_N$, $x_G[i]=K_L(G,R_i)$, gives an input that looks like a
+blurred one-hot over the anchors. If the anchors form a quadrature exact for
+degree $2L$, this is an orthogonal image (up to scale) of $\delta^L(G)$ and hence
+an equivalent input for a first layer with isotropic initialisation and weight
+decay, exactly as one-hot and Fourier coordinates are equivalent for finite
+groups (Remark~\ref{rem:onehot}).
+
+\paragraph{Tensor powers.} Decompose $(\R^3)^{\otimes k}=\bigoplus_l
+\R^{m_l}\otimes\R^{d_l}$, so that for an orthogonal $U$,
+\begin{equation}\label{eq:tensor}
+G^{\otimes k}=U\Bigl(\bigoplus_l I_{m_l}\otimes D^l(G)\Bigr)U^\top,
+\end{equation}
+with $(m_0,m_1)=(0,1)$ for $k=1$, $(m_0,m_1,m_2)=(1,1,1)$ for $k=2$, and
+$(m_0,\dots,m_3)=(1,3,2,1)$ for $k=3$.
+\begin{itemize}
+\item \emph{Matrix encoding} $\vect(G^{\otimes k})$: an orthogonal image of
+  $\bigl(D^l(G)\bigr)_{l\le k}$, each block repeated $m_l$ times. It is
+  $\delta^k(G)$ up to a linear map and block weights ($\sqrt{m_l}$ instead of
+  $\sqrt{d_l}$), which change initialisation and weight-decay geometry but not
+  expressivity.
+\item \emph{Orbit encoding} $G^{\otimes k}x$ with a fixed $x$: its $l$-block is
+  $D^l(G)\,\hat x_l$ with $\hat x_l\in\R^{d_l\times m_l}$, of rank
+  $r_l\le\min(m_l,d_l)$. For $k=3$: $r_1=3=d_1$ but $r_2\le2<5$, $r_3\le1<7$.
+  This is the analogue of a finite-group orbit encoding with rank-deficient
+  Fourier blocks, which never happens in $\R[G]$ but always happens here,
+  because $(\R^3)^{\otimes k}$ contains too few copies of the high irreps.
+\end{itemize}
+
+\begin{remark}[How $\ip{A}{G}$ is read from $G^{\otimes 3}x$]
+Contracting two indices commutes with rotation: $\sum_b (G^{\otimes3}x)_{abb}
+=(Gt_1)_a$ with $t_1=\sum_b x_{\cdot bb}$, and similarly $Gt_2,Gt_3$ for the
+other index pairs. A weight vector $w_{abc}=a_a\delta_{bc}$ thus computes
+$a^\top Gt_1=\ip{at_1^\top}{G}$, and for generic $x$ the $t_m$ are independent,
+so every $\ip{A}{G}$ is linear in the input. For $k=2$ the only one-index
+contraction is the axial vector $c$ of the antisymmetric part
+($G[c]_\times G^\top=[Gc]_\times$), so only $\ip{ac^\top}{G}$ is available; for
+$k=1$ only $\ip{ax^\top}{G}$, and $G$ is not even identifiable from $Gx$.
+\end{remark}
+
+\begin{proposition}[Degree filtration]\label{prop:degree}
+The entries of $D^l(G)$ are polynomials of degree exactly $l$ in the entries of
+$G$, and the polynomials of degree $\le k$ in the entries of $G$, restricted to
+$\SO$, span exactly the matrix elements of the irreps $l\le k$.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+The irrep $l$ occurs in $(\R^3)^{\otimes l}$ (as the symmetric traceless tensors),
+so $D^l(G)=P_l^\top G^{\otimes l}P_l$ for a fixed isometry $P_l$: degree $\le l$.
+Conversely, a polynomial of degree $k$ in the entries of $G$ is a matrix element of
+$\bigoplus_{j\le k}(\R^3)^{\otimes j}$, which only contains irreps $l\le k$
+(Clebsch--Gordan), so by Schur orthogonality it has no component on $D^l$ for
+$l>k$; hence the degree of $D^l$ is exactly $l$. More generally, for any compact
+group, the matrix elements of a faithful representation and its dual generate all
+representative functions (Peter--Weyl and Stone--Weierstrass); for $\SO$ the
+faithful defining representation coincides with the adjoint one.
+\end{proof}
+
+Numerically, fitting the entries of $D^l(G)$ by polynomials of degree $\le k$ in the
+entries of $G$ gives held-out $R^2=0$ for $k<l$ and $R^2=1.000$ for $k\ge l$
+($l\le4$). Rotation matrices therefore expose only $l=1$ linearly: higher irreps
+must be \emph{computed}, as degree-$l$ products, while the truncated delta makes
+them all linearly available. A network of depth $D$ with quadratic activations is a
+polynomial of degree $2^D$ in its inputs, so with rotation-matrix inputs it can
+represent the $l$-block of $\delta^L(GH)$ (degree $l$ in $G$ and in $H$) only if
+$2l\le2^D$.
+
+%======================================================================
+\section{An availability bound for quadratic layers}
+\label{sec:capacity}
+%======================================================================
+
+Consider one hidden layer with $\sigma(z)=z^2$, no normalisation, arbitrary
+width:
+\begin{equation}\label{eq:net}
+f(G,H)=\sum_j r_j\bigl(\ip{w_j}{u(G)}+\ip{v_j}{u(H)}+b_j\bigr)^2+c ,
+\end{equation}
+where $u(\cdot)$ is the input encoding. Expanding, $f$ is a constant plus terms
+depending on $G$ only, terms depending on $H$ only, and the cross part
+$2\sum_j r_j\ip{w_j}{u(G)}\ip{v_j}{u(H)}$, an arbitrary bilinear form in
+$(u(G),u(H))$ when the width is large enough.
+
+\begin{proposition}[Capacity of a quadratic layer]\label{prop:capacity}
+Let $u(G)=\rho(G)x$ and the target be the orbit $y(G,H)=\rho(GH)x$, with
+$\rho=(\R^3)^{\otimes k}$. For $l\ge1$, the fraction of the Haar variance of
+the $l$-component of $y$ that any $f$ of the form \eqref{eq:net} can capture is
+at most $r_l/d_l$, $r_l=\operatorname{rank}\hat x_l$, and this is attained.
+For the matrix target $y=GH$ ($l=1$) with an orbit input, the bound is
+$(r_1/d_1)^2$.
+\end{proposition}
+
+\begin{proof}
+Write the $l$-isotypic part of $\rho$ as $I_{m_l}\otimes D^l$ and collect the $m_l$
+copies of $x$'s $l$-component as the columns of $X_l\in\R^{d_l\times m_l}$, so that
+the $l$-part of the input is the matrix $D^l(G)X_l$ and the $l$-part of the target
+is $Y_l=D^l(G)D^l(H)X_l$; its Haar second moment is $\E\|Y_l\|_F^2=\|X_l\|_F^2$.
+
+\emph{Reduction to bilinear features.} Expanding~\eqref{eq:net}, $f$ is a constant,
+plus functions of $G$ alone and of $H$ alone, plus a bilinear form in
+$(u(G),u(H))$; conversely every bilinear form is realised by finitely many units,
+since $(a+b)^2-(a-b)^2=4ab$ removes the non-bilinear terms. For $l\ge1$,
+$\E_G[D^l(G)]=0$, so functions of $G$ alone (or $H$ alone) and constants are
+orthogonal to $Y_l$. By~\eqref{eq:schur}, products of entries of $D^{l'}(G)X_{l'}$
+and $D^{l''}(H)X_{l''}$ with $(l',l'')\ne(l,l)$ are orthogonal to $Y_l$ as well. It
+therefore suffices to project $Y_l$ onto
+$\mathcal V_l=\operatorname{span}\{(D^l(G)X_l)_{ip}(D^l(H)X_l)_{jq}\}$.
+
+\emph{The projection.} Let $\Pi_l=X_lX_l^+$ be the orthogonal projector onto the
+column space of $X_l$, of rank $r_l$. The candidate
+$\hat Y_l=D^l(G)\,\Pi_l\,D^l(H)X_l$ lies in $\mathcal V_l$, since
+$(\hat Y_l)_{iq}=\sum_{p,j}(D^l(G)X_l)_{ip}(X_l^+)_{pj}(D^l(H)X_l)_{jq}$. The
+residual $Y_l-\hat Y_l=D^l(G)(I-\Pi_l)D^l(H)X_l$ is orthogonal to $\mathcal V_l$:
+integrating over $G$ with~\eqref{eq:schur},
+\[
+\E_G\bigl[(D^l(G)(I-\Pi_l)D^l(H)X_l)_{iq}\,(D^l(G)X_l)_{i'p}\bigr]
+=\tfrac{\delta_{ii'}}{d_l}\bigl(X_l^\top(I-\Pi_l)D^l(H)X_l\bigr)_{pq}=0,
+\]
+because $X_l^\top(I-\Pi_l)=0$. Hence $\hat Y_l$ is the best approximation, and
+\[
+\E\|\hat Y_l\|_F^2=\E\|\Pi_lD^l(H)X_l\|_F^2
+=\sum_q\E\bigl\|\Pi_lD^l(H)x_q\bigr\|^2=\frac{\tr\Pi_l}{d_l}\sum_q\|x_q\|^2
+=\frac{r_l}{d_l}\,\|X_l\|_F^2,
+\]
+using $\E[D^l(H)vv^\top D^l(H)^\top]=\|v\|^2I/d_l$. The captured fraction is
+$r_l/d_l$, attained by the best bilinear form. For the matrix target $GH$ the
+same computation applies on both sides: the $H$-features are read through the
+column space of $X_1$ on the left of $D^1(H)$ as well, which gives
+$\E\|D^1(G)\Pi_1D^1(H)\Pi_1\|_F^2/\E\|D^1(G)D^1(H)\|_F^2=r_1^2/d_1^2$.
+\end{proof}
+
+\begin{corollary}
+With the truncated delta (or the matrix encoding), $r_l=d_l$ for all
+$l\le L$ and the target is exactly representable by a quadratic layer
+(e.g.\ by the explicit construction in Section~\ref{sec:mechanism}).
+\end{corollary}
+
+\paragraph{Numerical check.} For $k=3$, a random unit $x$, and the orbit target,
+we fit the best bilinear-plus-constant function by least squares on $30{,}000$
+Haar pairs and evaluate $R^2$ per output irrep on $10{,}000$ held-out pairs:
+
+\begin{center}
+\begin{tabular}{lccc}
+\hline
+& $l=1$ & $l=2$ & $l=3$\\
+\hline
+measured (1 probe) & 1.00 & 0.385 & 0.124\\
+predicted $r_l/d_l$ & 1 & 0.400 & 0.143\\
+measured (3 probes) & 1.00 & 1.00 & 0.286\\
+predicted $\min(1,3m_l/d_l)$ & 1 & 1 & 0.429\\
+\hline
+\end{tabular}
+\end{center}
+The small shortfall is finite-sample shrinkage of the held-out fit (it grows
+with the number of features: $730$ for one probe, $6562$ for three).
+In trained networks (Section~\ref{sec:experiments}), $k=2$ with the matrix target
+reaches relative MSE $0.887$ on the bilinear part, against the bound
+$1-(1/3)^2=0.889$.
+
+%======================================================================
+\section{The quadratic-product mechanism}
+\label{sec:mechanism}
+%======================================================================
+
+\subsection{An explicit construction}
+
+Since $(GH)_{ij}=\sum_kG_{ik}H_{kj}$,
+\begin{equation}\label{eq:matmul}
+GH=\sum_{i,j,k}E_{ij}\,\ip{E_{ik}}{G}\ip{E_{kj}}{H},
+\end{equation}
+where $E_{ik}$ are matrix units: 27 ``product units'' $(A,B,r)=(E_{ik},E_{kj},E_{ij})$,
+each satisfying $r=AB$. A quadratic neuron computes
+$(\ip{A}{G}+\ip{B}{H}+c)^2$, whose only useful part is the cross term
+$2\ip{A}{G}\ip{B}{H}$; the rest (``extraneous'' terms, cf.\
+\cite{marchetti2026sequential}) depends on $G$ or $H$ alone and must cancel.
+The polarisation identity $(a+b)^2-(a-b)^2=4ab$ realises each product with two
+neurons, so 54 quadratic neurons compute $GH$ exactly. More generally, any
+orthonormal basis $\{u_k\}$ gives $GH=\sum_k(Gu_k)(u_k^\top H)$: neurons reading
+$a^\top Gu$ and $u^\top Hb$ \emph{with the same inner direction $u$} produce
+the useful products.
+
+\subsection{The signature of the mechanism}
+
+\begin{lemma}[Correlation of a cross term with the target]\label{lem:cross}
+For $A,B\in\R^{d_l\times d_l}$ and Haar $G,H$,
+\[
+\E\bigl[D^l(G)D^l(H)x\;\ip{A}{D^l(G)}\ip{B}{D^l(H)}\bigr]=\frac{ABx}{d_l^2},
+\qquad
+\E\bigl[GH\;\ip{A}{G}\ip{B}{H}\bigr]=\frac{AB}{9}.
+\]
+\end{lemma}
+\begin{proof}
+By \eqref{eq:schur}, $\E[D_{ik}(G)\ip{A}{D(G)}]=A_{ik}/d$. Then
+$\E[(D(G)D(H)x)_i\ip{A}{D(G)}\ip{B}{D(H)}]=\sum_{k,m}\E[D_{ik}(G)\ip{A}{D(G)}]\,
+\E[D_{km}(H)\ip{B}{D(H)}]\,x_m=(ABx)_i/d^2$; the matrix case is identical.
+\end{proof}
+
+Since gradient descent on the readout aligns each neuron's readout with the
+target's correlation with its feature, the Lemma predicts, for neuron $j$ with
+l=1 maps $A_j,B_j$ and effective cross-term weight
+$r_j=W^{\text{out}}_{:,j}\,\sigma''(c_j)/2$ ($=W^{\text{out}}_{:,j}$ for $\sigma(z)=z^2$;
+a Taylor expansion for smooth activations):
+\begin{itemize}
+\item[(P1)] \textbf{readout alignment}: $r_j\parallel\vect(A_jB_j)$;
+\item[(P2)] \textbf{population}: $T=\sum_jr_j\otimes\vect A_j\otimes\vect B_j$ is
+  proportional to the matrix-multiplication tensor $M$, $M_{(ij),(ik),(kj)}=1$;
+\item[(P3)] \textbf{composability}: $\|A_jB_j\|_F/(\|A_j\|_F\|B_j\|_F)$ is large
+  (inner directions agree);
+\item[(P4)] \textbf{cancellation}: the extraneous terms vanish at the
+  population level.
+\end{itemize}
+This is the $\SO$ instance of the finite-group mechanism: preactivations are
+irrep matrix elements of each argument, the activation produces their product,
+and the readout uses the homomorphism $D^l(G)D^l(H)=D^l(GH)$, as in the
+Fourier circuit $\cos(\omega a)\cos(\omega b)\to\cos(\omega(a+b))$ for modular
+addition \cite{nanda2023progress}.
+
+%======================================================================
+\section{Mechanism: the defining irrep and the target $GH$}
+\label{sec:experiments}
+%======================================================================
+
+\paragraph{Setup.} Input: orbit encoding $u(G)=G^{\otimes k}x$ with a fixed
+unit $x$ ($k\in\{2,3\}$); target $GH\in\R^9$; MSE loss; one hidden layer of
+width 2048; activation $z^2$ (SiLU for comparison); AdamW (lr $3\cdot10^{-4}$,
+or $10^{-4}$ for SiLU), weight decay $10^{-4}$, batch 128, 1001 epochs,
+$10^4$ Haar triples ($80/10/10$ split). Two seeds ($42$, $43$; the seed also
+changes $x$) for the main $k=3$ configurations, one otherwise. All analysis
+uses fresh Haar samples.
+
+\paragraph{Measurements.}
+(i) Geodesic error after SVD projection to $\SO$. (ii) Exact irrep shares of
+the first-layer $G$-block preactivation at $H=I$, at initialisation and after
+training, via Casimir projectors (no Wigner regression). (iii) Least-squares
+fit $z_j\approx\ip{A_j}{G}+\ip{B_j}{H}+c_j$. (iv) P1--P3, each with a
+mismatched-neuron null. (v) Output sectors: on a $150\times150$ grid of $(G,H)$
+pairs, the output is split into pure-$G$, pure-$H$ and bilinear
+(double-centred) parts; the bilinear part is compared with that of $GH$.
+(vi) Irrep ablation: remove the $l$-components of $x$ (equivalent to projecting
+the first-layer weights).
+
+\begin{table}[h]
+\centering\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccc}
+\hline
+run & err ($^\circ$) & $l{=}1/2/3$ share init $\to$ final & $l{=}1$ $R^2$ & P3 (null) & P1 (null) & P2 $\cos(T,M)$\\
+\hline
+$k{=}3$, $z^2$, s42 & \textbf{0.14} & .28/.32/.40 $\to$ .80/.10/.10 & .80 & .89 (.53) & .96 ($-$.01) & 1.000\\
+$k{=}3$, $z^2$, s43 & 0.21 & .60/.25/.15 $\to$ .88/.07/.05 & .88 & .75 (.49) & .69 (.00) & 1.000\\
+$k{=}3$, SiLU, s42 & 0.23 & .28/.32/.40 $\to$ .85/.07/.08 & .85 & .91 (.53) & .91 ($-$.01) & 1.000\\
+\hline
+$k{=}2$, $z^2$ & 109.1 & .28/.72 $\to$ .57/.43 & .57 & .78 (.78) & .81 (.01) & 0.332\\
+$k{=}2$, SiLU & 109.1 & .28/.72 $\to$ .43/.57 & .43 & .72 (.72) & .84 (.01) & 0.332\\
+\hline
+\end{tabular}}
+\caption{Matrix target $GH$. Chance geodesic error is $126.5^\circ$. Shares are
+of the first-layer $G$-block (the $H$-block agrees to $\pm0.01$). P1 is the
+readout cosine weighted by $\|r_j\|\|A_jB_j\|$; nulls pair neuron $j$ with
+another neuron's quantities.}
+\label{tab:main}
+\end{table}
+
+\paragraph{R1: the mechanism is confirmed for $k=3$.} In all single-layer
+$k=3$ networks the implied bilinear map is the matrix-multiplication tensor
+(P2, cosine $1.000$), per-neuron readouts are parallel to $A_jB_j$
+(P1, $0.69$--$0.96$ vs $\approx0$), and neurons are composable (P3, $0.75$--$0.91$
+vs $0.49$--$0.53$). The pure quadratic network trains best ($0.14^\circ$).
+
+\paragraph{R2: training concentrates the first layer on $l=1$,} from $28\%$ of
+the preactivation variance at initialisation to $80$--$88\%$. This is the irrep that carries
+the target, so it is expected here; it is not by itself evidence for irrep
+specialisation (see Section~\ref{sec:planned}).
+
+\paragraph{R3: higher irreps cancel extraneous terms.} Removing the $l\ge2$
+components of the input increases the error ($0.14^\circ\to2.6^\circ$ for $z^2$),
+yet leaves the \emph{bilinear} part of the output unchanged or better
+(relative MSE to the bilinear part of $GH$: $4.2\cdot10^{-6}\to1.1\cdot10^{-6}$
+for $z^2$; same pattern for SiLU). Hence $l=2,3$ are not used to
+compute $GH$; they cancel the pure-$G$/pure-$H$ terms created by squaring the
+$l=1$ preactivations ($\ip{A}{G}^2$ has $l=0,1,2$ parts).
+
+\paragraph{R4: cancellation is not by sign-flip pairs.} Only $0$--$27\%$ of
+neurons have a partner with $(A,-B)$ (cosine $>0.9$), against $1$--$9\%$ under the
+null. The polarisation construction of Section~\ref{sec:mechanism} and the
+Waring decomposition used in \cite{marchetti2026sequential} are not what these
+networks learn (in this AdamW, standard-initialisation regime).
+
+\paragraph{R5: $k=2$ sits at the capacity bound.} Quadratic networks reach
+relative MSE $0.887$ on the bilinear part, vs the bound $8/9$
+(Proposition~\ref{prop:capacity}); error $\approx109^\circ$. Going beyond the
+bound requires higher-order terms that combine the $l=2$ and $l=1$ features of $G$
+(e.g.\ $GSG^\top\cdot Gc=GSc$), which a single quadratic layer does not have.
+
+\paragraph{Caveats.} Few seeds; 1001 epochs ($k=2$ runs are likely not
+converged); AdamW rather than SGD; P1--P2 use a second-order Taylor expansion
+for SiLU (exact for $z^2$).
+Earlier $\SO$ runs in this project used a non-Haar training sampler and a
+network with two hidden layers despite \texttt{num\_layers=1}; all numbers here
+use the corrected sampler and a true single hidden layer unless stated.
+
+%======================================================================
+\section{Selection: the truncated delta as input and target}
+\label{sec:planned}
+%======================================================================
+
+The matrix target $GH$ contains only $l=1$, so it cannot reveal irrep
+\emph{specialisation}: every useful neuron is an $l=1$ neuron. The finite-group
+phenomenon concerns targets containing all irreps. Its $\SO$ counterpart is:
+
+\paragraph{Design.}
+\begin{itemize}
+\item Input $(\delta^L(G),\delta^L(H))$, target $\delta^L(GH)$, with
+  $D^l(GH)=D^l(G)D^l(H)$; $L=3$ (width 2048) and $L=4$ (width 4096).
+\item One hidden layer with biases, $\sigma(z)=z^2$, no normalisation; MSE loss;
+  $5\cdot10^4$ Haar triples ($80/10/10$), batch 128, 1500 epochs, constant
+  learning rate.
+\item Plain SGD with small ($\times0.1$) or standard initialisation, weight decay
+  $\{10^{-5},10^{-4},10^{-3}\}$; AdamW (lr $3\cdot10^{-4}$) for comparison;
+  11 runs, two seeds for the main configurations.
+\end{itemize}
+By Proposition~\ref{prop:capacity} the target is exactly representable, and by
+the $\sqrt{d_l}$ weights every irrep block has the same target energy per
+dimension as in the true delta.
+
+\paragraph{Normalisation.} Two scale effects must be controlled when the number
+of output coordinates changes. (i) The MSE averages over the output coordinates, so
+the gradient reaching each irrep block shrinks as $1/N_L$ while weight decay does
+not: with $L\ge5$ and the hyperparameters that work for $L\le4$, training never
+leaves the initial plateau (training loss exactly $1.0$ for $1500$ epochs). Scaling
+the learning rate alone does not help, because SGD's coupled decay
+$\eta(\nabla\mathcal L+\lambda\theta)$ keeps the signal-to-decay ratio fixed; scaling
+the loss by $s=N_L/N_{L_0}$ (equivalently $\eta\to s\eta$, $\lambda\to\lambda/s$)
+restores training. (ii) In the pixel basis, default initialisation and MSE
+averaging over $N$ outputs make the effective Fourier-coordinate dynamics
+$\sqrt{N/N_L}$ and $N/N_L$ slower; we correct both (Section~R8b).
+
+\paragraph{Per-neuron irrep spectrum (fit-free).} Split neuron $j$'s
+$G$-weights, $H$-weights and readout into blocks $w_j^{(l)},v_j^{(l)},r_j^{(l)}$.
+With the $\sqrt{d_l}$ input weights, the Haar variance of the $l$-part of its
+$G$-preactivation is exactly $\|w_j^{(l)}\|_F^2$ (Section~\ref{sec:encodings}).
+Define $p^G_j(l)\propto\|w_j^{(l)}\|^2$, and likewise $p^H_j$, $p^R_j$.
+\begin{enumerate}
+\item \textbf{Purity} $\max_lp_j(l)$ (and participation ratio $1/\sum_lp_j(l)^2$);
+  fraction of neurons above $0.9$.
+\item \textbf{Agreement}: the $3$-way confusion matrix of
+  $\arg\max p^G_j$, $\arg\max p^H_j$, $\arg\max p^R_j$ (prediction: diagonal).
+\item \textbf{Census}: neurons per $l$, vs target energy and $d_l$.
+\item \textbf{Nulls}: initialisation; random re-pairing of $(w_j,v_k,r_m)$.
+\item \textbf{Causal test}: remove all neurons labelled $l$; only the
+  $l$-component of the output error should increase.
+\item \textbf{Within an irrep}: with $A_j=w_j^{(l)}$, $B_j=v_j^{(l)}$ (as
+  $d_l\times d_l$ matrices), test $r_j^{(l)}\parallel A_jB_j$ and
+  $\sum_jr_j^{(l)}\otimes A_j\otimes B_j\propto M^{(l)}$ (Lemma~\ref{lem:cross}).
+\item \textbf{Dynamics}: track $p_j(l)$ during training; test whether irreps
+  are acquired sequentially and in the order predicted by
+  \cite{marchetti2026sequential} (for a one-hot encoding all
+  $\|\hat x(\rho)\|_{\mathrm{op}}$ are equal, so the order is by increasing
+  dimension, here increasing $l$).
+\end{enumerate}
+
+\begin{hypothesis}\label{hyp:pure}
+With weight decay, neurons are irrep-pure ($p_j$ concentrated on one $l$) with
+the same $l$ in $G$, $H$ and the readout. Rationale: the target is
+block-diagonal by irrep, so a mixed neuron produces cross terms in sectors absent
+from the target that other neurons must cancel, at extra norm cost.
+\end{hypothesis}
+
+\begin{hypothesis}\label{hyp:order}
+Under small initialisation, irreps are learned in increasing $l$.
+\end{hypothesis}
+
+\subsection{Results}
+
+\begin{table}[h]
+\centering\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccc}
+\hline
+run & err ($^\circ$) & pure & agree (null) & active neurons per $l$ & $\cos(T_l,M_{d_l})$ & $s_2/s_1(A_j)$\\
+\hline
+$L{=}4$, SGD, small init, wd $10^{-4}$ & 2.53 & 1.00 & 1.00 (0.21) & 27/125/343/683 & 1.000/1.000/0.994/0.964 & .001/.003/.004/.006\\
+$L{=}3$, SGD, std init, wd $10^{-3}$ & 0.53 & 1.00 & 1.00 (0.33) & \textbf{27/125}/323 & 1.000/1.000/0.962 & .001/.003/.005\\
+$L{=}3$, SGD, small init, wd $10^{-4}$, s42 & 0.52 & 1.00 & 1.00 (0.33) & 30/130/334 & 1.000/1.000/0.970 & .001/.002/.003\\
+$L{=}3$, SGD, small init, wd $10^{-4}$, s43 & 2.56 & 1.00 & 1.00 (0.45) & 27/130/351 & 1.000/1.000/0.976 & .002/.003/.004\\
+$L{=}3$, SGD, std init, wd $10^{-4}$ & 0.20 & 1.00 & 1.00 (0.60) & 28/170/1115 & 1.000/0.999/0.995 & .001/.012/.101\\
+$L{=}3$, SGD, small init, wd $10^{-5}$ & 0.19 & 1.00 & 1.00 (0.45) & 38/312/1183 & 1.000/0.999/0.996 & .002/.093/.189\\
+$L{=}3$, AdamW, wd $10^{-4}$ (2 seeds) & 0.51--0.55 & 1.00 & 1.00 (0.50) & $\approx$43/267/1263 & 1.000/0.997/0.996 & .002/.045/.118\\
+$L{=}3$, SGD, small init, wd $10^{-3}$ & 126 & \multicolumn{5}{c}{did not leave the initial plateau}\\
+\hline
+\end{tabular}}
+\caption{Truncated delta, $\sigma=z^2$, after 1500 epochs (converged
+counts after 21{,}500 epochs are in R8). ``pure'': fraction of active
+neurons (smallest set covering $95\%$ of $\sum_j\|w_j\|\|v_j\|\|r_j\|$) with more
+than $90\%$ of their energy in one $l$, minimum over $G$-weights, $H$-weights and
+readout ($0.00$ at initialisation). ``agree'': same label in all three; null:
+random re-pairing of neurons' $(w,v,r)$. $T_l=\sum_jr_j^{(l)}\otimes A_j\otimes
+B_j$ over $l$-labelled neurons; $M_d$ is the $d\times d$ matrix-multiplication
+tensor. Rows omitted: SGD lr 1.0 and AdamW wd $10^{-3}$ (same pattern).}
+\label{tab:onehot}
+\end{table}
+
+\paragraph{R6: irrep specialisation (Hypothesis~\ref{hyp:pure}) holds in every
+run that learned} (10/11, SGD and AdamW, both initialisations, all weight decays):
+all active neurons are pure, with the same $l$ in $G$, $H$ and readout (diagonal
+confusion matrices).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/purity.pdf}
+\caption{Selection of irreps ($L=4$, SGD, $21{,}500$ epochs). (a) At initialisation,
+each neuron's first-layer $G$-weights spread their energy over the irrep blocks in
+proportion to the block sizes $d_l^2$. (b) After training, every active neuron has
+all its energy in a single irrep. (c) Number of active neurons per irrep (sharp
+gap in contribution), against $d_l^3$ and $d_l^3+d_l$.}
+\label{fig:purity}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/harmonics.pdf}
+\caption{Spherical harmonics read out from the network ($L=4$ run). For each $l$, a
+linear decoder from the preactivations of the $l$-labelled neurons alone to
+$D^l(G)$ (held-out $R^2\ge0.99998$) is evaluated at rotations sending the north pole
+to each point of the sphere; its zonal column is $\sqrt{4\pi/d_l}\,Y_l^m$ (upper
+rows), shown above the exact harmonics (lower rows) with a shared colour scale per
+$(l,m)$. Since the first layer is linear in $\delta^L(G)$, this shows availability
+(the $l$-labelled neurons span the $l$-block), not selection; selection is
+Figure~\ref{fig:purity}.}
+\label{fig:harmonics}
+\end{figure}
+
+\paragraph{R7: each irrep block is a matrix-multiplication circuit:}
+$\cos(T_l,M_{d_l})=0.96$--$1.000$ and $r_j^{(l)}\parallel A_jB_j$ (weighted
+cosine $0.94$--$1.00$). Ablating the $l$-labelled neurons destroys only the
+$l$-component (e.g.\ $L=4$, removing $l=2$: relative MSE $0.01/4.58/0.01/0.03$).
+
+\paragraph{R8: under weight decay, $\approx d_l^3$ rank-one product units.}
+After 21{,}500 epochs of SGD with weight decay, each irrep shows a sharp gap in
+neuron contribution (the next neuron is at $\sim10^{-119}$ of the largest). The
+number of units is $27=3^3$ and $125=5^3$ for $l=1,2$, and $350=7^3+7$,
+$738=9^3+9$ for $l=3,4$; the count $350$ is reproduced by two runs with different
+initialisation, learning rate and weight decay. (At epoch 1500 a coverage
+threshold gave $343$ for $l=3$, an artefact of the threshold.) We do not yet
+understand the extra $d_l$ units for $l\ge3$. Each surviving neuron computes
+$(a^\top D^l(G)u)(u^\top D^l(H)b)$ and writes it along $ab^\top$: $A_j$, $B_j$,
+$r_j$ are rank one ($s_2/s_1\le0.006$), $A_j$'s right and $B_j$'s left singular
+vectors coincide ($|\cos|=1.000$), and all units of an irrep have the same norm
+(spread $\le0.4\%$). This is not a rotated copy of~\eqref{eq:matmul}: for $l=1$
+the units split into 3 nearly orthogonal output directions $a$ with 9 units each,
+but the inner vectors take 17 directions. Each output row is computed by its own
+9-term vector-by-matrix product, which is rank-minimal. AdamW, whose decoupled decay is negligible
+here, keeps $\approx2$--$4\times d_l^3$ less clean units.
+
+\paragraph{R8e: the $d_l^3$ count is the minimum-norm decomposition.} Weight decay on
+a one-hidden-layer $z^2$ network penalises $\sum_j(\|r_j\|^2+\|a_j\|^2+\|b_j\|^2)$, and
+the bilinear part of its output in block $l$ is $\sum_j r_j\otimes a_j\otimes b_j$,
+which must equal the $d_l\times d_l$ matrix-multiplication tensor $M_{d_l}$. Solving
+directly, without a network,
+\[
+\min_{(r_j,a_j,b_j)_{j\le3d^3}}\ \Bigl\|\sum_j r_j\otimes a_j\otimes b_j-M_d\Bigr\|^2
++\lambda\sum_j\bigl(\|r_j\|^2+\|a_j\|^2+\|b_j\|^2\bigr),
+\]
+from $3d^3$ random units ($\lambda=3\cdot10^{-3}$, 3 seeds), leaves exactly
+$27,125,343,729$ units for $d=3,5,7,9$, with equal contributions (spread
+$\le0.3\%$) and every other unit at contribution $\le10^{-26}$. The count of the
+trained networks is therefore a property of the weight-decay objective on the target
+block, not of the training dynamics, and the minimum-norm decomposition is not a
+low-rank (Strassen-type) one: the $3\times3$ tensor has rank at most $23$
+\cite{laderman1976}. This computation ignores the non-bilinear terms that a $z^2$
+network must also cancel; the extra $d_l$ units observed for $l\ge3$ are a natural
+candidate for that role. Script: \texttt{scripts/min\_norm\_decomposition.py}.
+
+\paragraph{R8b: hidden irreps (pixel basis).} We repeat the experiment with
+input and target encoded by the truncated delta sampled at $N$ Haar-random anchors,
+$x_G[i]=K_L(G,R_i)/\sqrt N$ with the $l=0$ term included
+(Section~\ref{sec:computing-encoding}); no irrep is visible in these coordinates.
+Two scale corrections make the runs comparable with the Fourier-basis ones: the
+default initialisation is rescaled by $\sqrt{N/(N_L+1)}$, since $1/\sqrt{\text{fan-in}}$
+would otherwise make the effective Fourier weights $W\Phi$ that much smaller, and
+the MSE is reported per Fourier coordinate (multiplied by $N/N_L$), since averaging
+over $N$ outputs would shrink gradients by that factor. Analysis maps the weights
+back to Fourier blocks ($W_G\Phi$, $W_H\Phi$, $\Phi^+W_{\mathrm{out}}$).
+
+\begin{center}\small
+\begin{tabular}{llllll}
+\hline
+$L$ & $N$ & err ($^\circ$) & pure / agree & active neurons per $l$ & $\cos(T_l,M_{d_l})$\\
+\hline
+2 & 256--1024 & 0.63--0.33 & 1.00 / 1.00 & 27--30 / 122 & 1.000 / 0.97\\
+2 & 2048 (lr 0.05) & 0.22 & 1.00 / 1.00 & 27 / 127 & 1.00 / 0.98\\
+3 & 256--2048 & 3.83--0.84 & 1.00 / 1.00 & 27 / 125--130 / 322--325 & 1.000 / 1.000 / 0.96\\
+3 & 4096 (lr 0.05) & 0.56 & 0.98 / 1.00 & 30 / 130 / 316 & 1.00 / 1.00 / 0.96\\
+4 & 1024--2048 ($L{=}4$ config.) & 2.23--2.29 & 1.00 / 1.00 & 27--30 / 125 / 343--350 / 697--733 & 1.00 / 1.00 / 1.00 / 0.97\\
+3, Fourier basis & --- & 0.53 & 1.00 / 1.00 & 27 / 125 / 323 & 1.000 / 1.000 / 0.962\\
+\hline
+\end{tabular}
+\end{center}
+
+Whenever training succeeds, the structure is the same as in the Fourier basis:
+all active neurons are irrep-pure and consistent, the neuron counts and the
+matrix-multiplication alignment match the Fourier-basis run with the same
+hyperparameters, and weight decay removes all first-layer weight outside
+$\operatorname{range}(\Phi)$ (100\% of the norm ends up in the $(N_L+1)$-dimensional
+subspace occupied by the data). The number of anchors only affects accuracy,
+through the Riemann sum. This is the $\SO$ counterpart of the finite-group
+situation: the irreps are not visible in the input, yet the hidden units select
+them. At learning rate $0.2$, the runs with the largest corrections ($N\ge2048$
+for $L=2$, $N=4096$ for $L=3$) diverge; at $0.05$ (or $0.02$) they train and show
+the same structure (see R8c for seeds). For $L=4$ the hyperparameters of the $L=3$
+runs leave training on the initial plateau, as in the Fourier basis; with those that
+work for $L=4$ in the Fourier basis (small initialisation, lr $0.5$, weight decay
+$10^{-4}$), the pixel-basis runs reproduce the Fourier-basis structure, including
+$343$--$350$ units for $l=3$.
+
+\paragraph{R8c: robustness across seeds.} Each configuration below was trained
+with three seeds for $5000$ epochs (for the pixel basis the anchors change with the
+seed). All runs have $100\%$ irrep-pure active neurons with consistent labels.
+
+\begin{center}\small
+\begin{tabular}{lllll}
+\hline
+configuration & err ($^\circ$) & pure / agree & active neurons per $l$ & min $\cos(T_l,M_{d_l})$\\
+\hline
+$L{=}3$, Fourier, standard init & 0.52--0.64 & 1.00 / 1.00 & 27 / 125--130 / 322--329 & 1.00 / 1.00 / 0.96\\
+$L{=}3$, Fourier, small init & 0.65--2.37 & 1.00 / 1.00 & 27--30 / 125--130 / 326--332 & 1.00 / 0.98 / 0.96\\
+$L{=}4$, Fourier, small init & 1.42--4.00 & 1.00 / 1.00 & 27 / 125 / 343--350 / 668--676 & 1.00 / 1.00 / 0.99 / 0.95\\
+$L{=}3$, pixel, $N=2048$ & 0.80--0.90 & 1.00 / 1.00 & 27 / 130 / 322--323 & 1.00 / 1.00 / 0.96\\
+$L{=}2$, pixel, $N=1024$ & 0.30--0.33 & 1.00 / 1.00 & 27 / 122 & 1.00 / 0.97\\
+\hline
+\end{tabular}
+\end{center}
+
+The counts for the lower irreps are reproduced exactly ($27$ in every run; $125$
+or $130$ for $l=2$); the highest irrep of each run, which carries the largest target
+block and converges last, is below its long-run value after $5000$ epochs
+(compare R8).
+
+\paragraph{R8d: larger band-limits, and are all irreps learned?} With width at
+least $\sum_{l\le L}d_l^3$ and the loss rescaled as described under Normalisation
+(training otherwise stays on the initial plateau for $L\ge5$), irreps are acquired
+in increasing order of $l$, and every irrep up to $L$ is eventually learned when
+training converges. Since the geodesic error only measures the $l=1$ block, we
+report the relative error of each block. Every block is fitted (relative MSE
+$<0.1$) in all converged runs for $L\le4$. For $L=5$ after $4000$ epochs, blocks
+$l\le4$ are fitted in all three runs and $l=5$ is fitted in one and at $0.16$--$0.19$
+in the other two; neurons are $100\%$ pure with counts
+$27/125/341$--$350/724$--$729$ ($9^3=729$ for $l=4$). For $L=6$, after $1500$ epochs
+only $l=1$ (or $l\le2$) is fitted; after $4000$ epochs two of three runs have fitted
+$l\le4$ (relative MSE $\le0.14$) with $l=5,6$ at $0.37$--$0.49$, and the third has
+not progressed beyond $l=1$. In these runs the readout weights are already pure
+($0.99$--$1.00$) and input purity rises with training (median $0.89$--$0.90$).
+Higher irreps are thus learned later, not skipped; within our budget the largest
+ones were not reached for $L\ge6$, and $L=8,10$ did not train.
+
+\paragraph{R9: the regime matters.} Small initialisation with weight decay
+$10^{-3}$ never leaves the initial plateau. Without strong weight decay, the census
+keeps shrinking long after the error is small (main run, $l=3$: $955\to334$
+between epochs 240 and 1500). Continuing two runs to 21{,}500 epochs leaves the
+census and the rank-one structure unchanged after $\sim5000$ epochs but sharpens
+the patterns: unit norms within an irrep equalise ($L=4$, $l=2$: spread
+$0.83\to0.006$), and the three output directions of the $l=1$ units become
+orthogonal (max $|\cos|$ $0.15\to0.01$).
+
+\paragraph{R9b: explicit weight decay is needed for pruning.} Without weight decay
+($L=3$, SGD) the network is still irrep-pure: $100\%$ of active neurons are pure
+from initialisation $\times0.1$, and $80$--$90\%$ (median purity $0.95$) from
+standard initialisation, with consistent labels in $99$--$100\%$ of neurons. But it
+keeps $1544$--$1840$ active neurons, against $\approx\sum_ld_l^3=475$ with weight
+decay. This does not show that purity is independent of norm control: a small
+initialisation is itself an implicit regularisation, since gradient flow from near
+zero is biased towards low-norm solutions, much like the limit of a vanishing
+Lagrange multiplier on the norm constraint that weight decay imposes. What these runs
+show is that implicit norm control suffices for purity, while explicit weight decay
+is needed to reach the minimum-norm count (R8e). Separating purity from norm control
+requires the lazy regime (large initialisation, no weight decay), where this
+implicit bias disappears. There, with initialisation $\times3$ and $\times10$, the
+network partly fits the target (relative error $0.29$--$0.35$ and $0.82$--$0.84$
+per block after $1500$ epochs) while its neurons keep their initial mixing (no pure
+neuron; median purity $0.59$, the value at initialisation). Without any norm
+control, explicit or implicit, the hidden units are not selected; these lazy runs
+are not converged, and larger learning rates diverged.
+
+\paragraph{R10: learning order.} With per-neuron scaled SGD
+($\eta_i\propto\|\theta_i\|^{-1}$) from a vanishing initialisation ($\times10^{-3}$ or
+$\times10^{-4}$) and no weight decay, the time-rescaled gradient flow of
+\cite{marchetti2026sequential,kunin2025agf}, the irrep blocks are learned one after
+another, in increasing $l$: the relative error of block $l$ falls below $0.5$ at
+epochs $26/31/35$ for $L=3$ and $59/71/80/89$ (initialisation $10^{-4}$) or
+$50/60/67/73$ ($10^{-3}$) for $L=4$. This is the staircase predicted by AGF for a
+one-hot-like encoding, ordered by irrep dimension (Hypothesis~\ref{hyp:order}).
+At the end of training the neurons are pure (median purity $0.97$--$0.99$) with
+consistent labels in all neurons. With standard SGD and initialisation $\times0.1$
+the same order appears, but the steps overlap.
+
+\paragraph{Availability versus selection.} The one-hot encoding of a finite group
+is the regular representation written in the position basis, and a first layer
+with isotropic initialisation and weight decay cannot distinguish it from the
+Fourier basis (Section~\ref{sec:finite}). Irrep matrix elements are therefore
+available from the start; a network does not have to ``discover'' the Fourier
+transform. The pixel-basis experiment (R8b) makes this concrete for $\SO$: whether
+the truncated delta is presented through its Fourier coefficients or through
+samples at random anchors, the trained network is the same up to the change of
+basis. What is not given by the encoding is the \emph{choice of hidden basis}.
+With an elementwise activation, rotating the hidden units changes the function, so
+some basis must be chosen; at initialisation every unit mixes all irreps
+(Figure~\ref{fig:purity}a). That every surviving unit ends up in a single irrep,
+consistently in its two input blocks and its readout, and that each block is then
+served by equal-norm rank-one product units, is the non-trivial outcome. Our
+experiments distinguish two effects of norm control. Implicit control (small
+initialisation) suffices for purity, while explicit weight decay is needed to prune
+to the minimum-norm count (R9b); whether purity can arise without any norm control
+is tested by the lazy regime. We propose the following mechanism for purity in the
+rich regime: by Schur orthogonality the
+gradient of a unit decouples across irreps at leading order, each irrep component
+of a unit grows as a degree-3 homogeneous system (rich get richer), so the
+best-aligned irrep runs away first, and cross terms between irreps, which only add
+error, are suppressed. This is the utility-maximisation step of AGF
+\cite{kunin2025agf,marchetti2026sequential}, and is consistent with the ordered
+acquisition we observe (R10) and with purity being weaker from larger
+initialisations. Weight decay then prunes the pure units to the minimum-norm
+decomposition of each block, $d_l^3$ units (R8e). Making the purity argument
+precise is left open.
+
+\paragraph{Relation to Marchetti et al.} Our setting is their two-layer,
+quadratic, pairwise composition \cite{marchetti2026sequential}, transported to
+$\SO$. Two of their ingredients appear in trained networks: the sigma-pi-sigma
+product term, and the need to cancel extraneous terms. Their explicit Waring
+construction, with sign-flip pairs of units, is not what our networks learn (R4).
+Their theorem assumes that every Fourier coefficient $\hat x(\rho)$ of the encoding
+is invertible or zero, which always holds for generic encodings in $\R[G]$;
+Proposition~\ref{prop:capacity} describes the rank-deficient case that can occur
+for $\SO$ encodings. Their construction uses rank-one matrices, which they relate
+to the $\rho$-sets of Wu et al.\ \cite{wu2024unifying}; the units we find after
+training are rank one in the same sense.
+
+\paragraph{Ordering and smoothness.} The $D^l$ are eigenfunctions of the
+Laplace--Beltrami operator of $\SO$ with eigenvalue $l(l+1)$, and the degree
+filtration (Proposition~\ref{prop:degree}) gives the same order. A preference for
+low $l$ could therefore come from a smoothness (Dirichlet-energy) bias, from the
+dimension ordering of AGF \cite{marchetti2026sequential}, or from polynomial
+degree when irreps must be computed from rotation matrices. These predictions
+coincide for the truncated delta; reweighting the target blocks would separate
+them, since the AGF order follows the weights while a smoothness bias does not.
+
+\paragraph{Choice of activation.} We use $\sigma(z)=z^2$ because it makes the
+network a polynomial whose cross terms are exactly the products
+$\ip{A_j}{D^l(G)}\ip{B_j}{D^l(H)}$, so that every claim above can be checked in
+closed form. Other activations lead to different, approximate, circuits on the
+same tasks \cite{zhong2023clock, nanda2023progress}; we expect the separation of
+availability and selection to carry over, but do not study it here.
+
+\paragraph{Limitations.} All networks have one hidden layer and are trained with
+MSE. The structural results hold in the regime where training succeeds; small
+initialisation with strong weight decay stays on the initial plateau, and the
+learning rate, initialisation and loss scale must be adapted to the encoding
+(Section~\ref{sec:planned}, Normalisation). The neuron counts are observed, not
+derived, and the extra $d_l$ units for $l\ge3$ are unexplained. The sharp
+truncation of the delta converges only in the sense of distributions
+(Figure~\ref{fig:delta}b).
+
+\paragraph{Open questions.} How the extraneous terms are cancelled at the
+population level (R3, R4); why weight decay selects $\approx d_l^3$ units per irrep
+rather than a lower-rank decomposition (the $3\times3$ matrix-multiplication tensor
+has rank at most $23$ \cite{laderman1976}, yet R8 finds 27), and what the extra $d_l$
+units for $l\ge3$ do; and how the picture changes with depth, in particular when
+irreps must be computed from rotation matrices (Proposition~\ref{prop:degree}).
+
+%======================================================================
+\section*{Reproducibility}
+%======================================================================
+{\sloppy
+All code is in the NeuralRep repository, with tests. Encodings:
+\texttt{neuralrep/datamodules/so3\_onehot.py} (truncated delta in Fourier and
+pixel bases), \texttt{neuralrep/algorithms/callbacks/wigner\_d.py} (real Wigner
+matrices). Training: \texttt{scripts/train\_so3\_onehot.py} (truncated delta),
+\texttt{scripts/train\_so3\_mechanism.py} (matrix target $GH$); cluster job
+scripts in \texttt{scripts/slurm/}, with the exact configuration lists used.
+Analysis: \texttt{scripts/analyze\_so3\_onehot.py} and
+\texttt{neuralrep/algorithms/callbacks/so3\_irrep\_spectrum.py} (fit-free irrep
+spectra, purity, counts, matrix-multiplication alignment, product units),
+\texttt{scripts/analyze\_so3\_mechanism.py} and
+\texttt{neuralrep/algorithms/callbacks/so3\_mechanism.py} (Casimir projectors, $l=1$
+maps, output sectors). Availability bound: \texttt{scripts/capacity\_check.py}.
+Figures: \texttt{scripts/plot\_delta\_kernel.py}, \texttt{scripts/plot\_so3\_purity.py},
+\texttt{scripts/plot\_so3\_harmonics.py}. Per-run configurations and analyses are
+in \texttt{results/}, documented in \texttt{SO3-RESULTS.md}.\par}
+
+\begin{thebibliography}{99}
+\bibitem{marchetti2026sequential} G.~L.~Marchetti, D.~Kunin, A.~Myers, F.~Acosta,
+  N.~Miolane. Sequential group composition: a window into the mechanics of deep
+  learning. arXiv:2602.03655, 2026.
+\bibitem{kunin2025agf} D.~Kunin, G.~L.~Marchetti, F.~Chen, D.~Karkada, J.~B.~Simon,
+  M.~R.~DeWeese, S.~Ganguli, N.~Miolane. Alternating gradient flows: a theory of
+  feature learning in two-layer neural networks. arXiv:2506.06489, 2025.
+\bibitem{chughtai2023toy} B.~Chughtai, L.~Chan, N.~Nanda. A toy model of
+  universality: reverse engineering how networks learn group operations. ICML 2023. arXiv:2302.03025.
+\bibitem{nanda2023progress} N.~Nanda, L.~Chan, T.~Lieberum, J.~Smith,
+  J.~Steinhardt. Progress measures for grokking via mechanistic
+  interpretability. ICLR 2023. arXiv:2301.05217.
+\bibitem{gromov2023grokking} A.~Gromov. Grokking modular arithmetic. arXiv:2301.02679, 2023.
+\bibitem{zhong2023clock} Z.~Zhong, Z.~Liu, M.~Tegmark, J.~Andreas. The clock
+  and the pizza: two stories in mechanistic explanation of neural networks.
+  NeurIPS 2023. arXiv:2306.17844.
+\bibitem{stander2024cosets} D.~Stander, Q.~Yu, H.~Fan, S.~Biderman. Grokking
+  group multiplication with cosets. arXiv:2312.06581, 2024.
+\bibitem{morwani2023feature} D.~Morwani, B.~L.~Edelman, C.-A.~Oncescu, R.~Zhao,
+  S.~Kakade. Feature emergence via margin maximization: case studies in
+  algebraic tasks. arXiv:2311.07568, 2023.
+\bibitem{wu2024unifying} W.~Wu, L.~Jaburi, J.~Drori, J.~Gross. Unifying and verifying
+  mechanistic interpretations: a case study with group operations.
+  arXiv:2410.07476, 2024.
+\bibitem{laderman1976} J.~D.~Laderman. A noncommutative algorithm for
+  multiplying $3\times3$ matrices using 23 multiplications. Bull.\ AMS, 1976.
+\end{thebibliography}
+
+\appendix
+\section{Real Wigner matrices}\label{app:wigner}
+
+\paragraph{Definition.} Let $\mathcal Y_l$ be the space of spherical harmonics of
+degree $l$ (restrictions to $S^2$ of harmonic homogeneous polynomials of degree $l$
+on $\R^3$), $\dim\mathcal Y_l=2l+1$. $\SO$ acts on $\mathcal Y_l$ by
+$(G\cdot f)(x)=f(G^{-1}x)$; this action is irreducible, and every irrep of $\SO$ is
+of this form for exactly one $l\ge0$. With the real orthonormal basis
+$(Y_l^m)_{m=-l}^{l}$ of $L^2(S^2)$,
+\[
+Y_l^0=N_{l0}P_l(\cos\theta),\quad
+Y_l^m=\sqrt2N_{lm}P_l^{m}(\cos\theta)\cos(m\varphi),\quad
+Y_l^{-m}=\sqrt2N_{lm}P_l^{m}(\cos\theta)\sin(m\varphi)\quad(m>0),
+\]
+with $P_l^m$ the associated Legendre functions and $N_{lm}$ the usual normalisation,
+the real Wigner matrix is defined by
+$Y_l^m(G^{-1}x)=\sum_{m'}D^l_{m'm}(G)Y_l^{m'}(x)$. It is orthogonal, and
+$D^l(GH)=D^l(G)D^l(H)$.
+
+\paragraph{Euler angles.} Writing $G=R_z(\alpha)R_y(\beta)R_z(\gamma)$, the complex
+Wigner matrix in the basis of complex harmonics is
+$\mathcal D^l_{mm'}(\alpha,\beta,\gamma)=e^{-im\alpha}d^l_{mm'}(\beta)e^{-im'\gamma}$,
+with $d^l$ the Wigner small-$d$ matrix; the real Wigner matrix is obtained from it by
+the fixed unitary change of basis between complex and real harmonics.
+
+\paragraph{Properties used in the paper.} (i) Schur orthogonality,
+equation~\eqref{eq:schur}. (ii) The zonal column is a vector of harmonics:
+$D^l(G)_{\cdot,0}=\sqrt{4\pi/d_l}\,(Y_l^m(G\hat z))_m$; this is what
+Figure~\ref{fig:harmonics} displays. (iii) The character is
+$\tr D^l(G)=\sin\bigl((2l+1)\theta/2\bigr)/\sin(\theta/2)$, with $\theta$ the rotation
+angle of $G$. (iv) The entries of $D^l(G)$ are polynomials of degree exactly $l$ in
+the entries of $G$ (Proposition~\ref{prop:degree}).
+
+\paragraph{Computation.} We compute $D^l(G)$ from the definition: evaluate the real
+harmonics on a quadrature grid of $S^2$ fine enough for degree $l$, evaluate them at
+the rotated grid points $G^{-1}x$, and solve the linear system for the coefficients
+$D^l_{m'm}(G)$. We checked that the result is an orthogonal homomorphism to
+machine precision ($\max|D^l(GH)-D^l(G)D^l(H)|\le4\cdot10^{-13}$ and
+$\E[D^l_{ij}(G)^2]\,d_l=1$ for $l\le16$), and that its zonal column matches
+$\sqrt{4\pi/d_l}\,Y_l^m(G\hat z)$ to $2\cdot10^{-14}$ for $l\le3$
+(\texttt{neuralrep/algorithms/callbacks/wigner\_d.py}).
+
+\end{document}
